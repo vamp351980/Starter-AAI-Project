@@ -118,3 +118,109 @@ and tick their own AC rows and lint when done.
 - **Files:** `src/app/(protected)/user-menu.tsx` (new, `'use client'`), `src/app/(protected)/change-password/page.tsx` (new, `requireUser()` with no role + glass card), `src/app/(protected)/change-password/form.tsx` (relocated from `change-password-form.tsx`, minus the card chrome), `src/app/(protected)/layout.tsx` (render `UserMenu`; drop the mounted card), `src/proxy.ts` (add `/change-password` to the matcher and the protected prefixes).
 - **Traces:** U5, U10, U11; AC-09, AC-16 (via the page), AC-19, AC-20; design §4, §4.1, §5, §6; rule 7 (proxy covers the new route).
 - **Check:** AC-20 — sign in, the pill opens the menu; Change password → `/change-password` renders the form; outside click and Escape close it; Log out → `/login`. AC-16 — run the change flow on the new page (restore afterwards). AC-19 — logged out, `/change-password` redirects to `/login` (proxy, and again with the matcher temporarily `[]` to prove the page guard, as in Task 9). `npm run lint` exits with no errors.
+
+---
+
+# Leave Request – Tasks
+
+> The rows below continue the numbering: Tasks 13–22 build the leave module
+> from `01-requirements.md` U12–U19 and the Leave Request part of
+> `02-design.md`. The Login & Access tasks above are Done and untouched.
+
+**Priority.** Same rule as before: High first. The order below is the build
+order: the database comes first (Task 13), then the flow follows the workflow —
+submit → employee list → supervisor sign → supervisor reject → send to HR → HR
+decide — then the two Medium extras (Task 20 guardrails, Task 21 Admin list),
+and Task 22 (the full check) runs last on purpose even though 20–21 are Medium,
+exactly as Task 10 did.
+
+Confirm-before-action and the success message (FR-07, design LR-11) are built
+into every action task, not a task of their own; Task 22 re-checks AC-35 across
+all six actions at once.
+
+| Status | # | Task | Priority | Checks (from requirements §4) |
+|--------|---|------|----------|-------------------------------|
+| To do | 13 | Database + LeaveRequest table | High | (design §1 — see task) |
+| To do | 14 | Leave form + submit action | High | AC-21 (row created), AC-22…24, AC-35 (submit) |
+| To do | 15 | My requests list (employee) | High | AC-21 (list), AC-33 (employee part) |
+| To do | 16 | Supervisor queue + Sign | High | AC-21 (queue half), AC-26, AC-28 (visibility), AC-33 (supervisor part), AC-35 (sign) |
+| To do | 17 | Supervisor Reject + remark | High | AC-27, AC-28 (cookie POST), AC-35 (reject) |
+| To do | 18 | Send to HR | High | AC-29, AC-30, AC-35 (send) |
+| To do | 19 | HR queue + Approve/Reject + first-decision-wins | High | AC-31, AC-32, AC-33 (HR part), AC-35 (HR actions) |
+| To do | 20 | Submission guardrails | Medium | AC-25, AC-23 (Other reason, final check) |
+| To do | 21 | Admin All-leave list | Medium | AC-34 |
+| To do | 22 | Full spec check + lint | High | AC-21…AC-35, `npm run lint` |
+
+---
+
+## Task 13 – Database + LeaveRequest table *(High)*
+
+> One task = one small step you can finish and test on its own.
+
+- **Goal:** The `LeaveRequest` model exists in `dev.db` exactly as design §1: all 14 fields, the `LeaveType` and `LeaveStatus` enums, the FKs to `User`, and the three indexes.
+- **Files:** `prisma/schema.prisma` (new model + two enums + the three named back-relations on `User`: `submittedRequests`, `supervisedRequests`, `hrDecisions` — design §1 note), then run `npx prisma migrate dev --name leave_request`.
+- **Traces:** design §1 (`LeaveRequest`, `LeaveType`, `LeaveStatus`, relations note), §3 (LR-8 timestamps), §7 (migrate command).
+- **Check:** `npx prisma migrate dev --name leave_request` finishes without error; `npx prisma studio` shows `LeaveRequest` with the 14 fields from design §1; the `leaveType` dropdown offers exactly the five doc §7.2 types and `status` exactly the six states; `User` shows the three back-relations. Existing `User` data is untouched (the six demo users still log in). `npm run lint` passes.
+
+## Task 14 – Leave form + submit action *(High)*
+
+- **Goal:** The employee home gains the **New leave request** card: type select, the Other-only reason field, start/end dates, and a supervisor select holding only supervisors of the employee's own division; submitting runs confirm → server validation → insert as `PENDING_SUPERVISOR` → success message (FR-02).
+- **Files:** `src/app/actions/leave.ts` (`submitLeaveRequest`: `requireUser('EMPLOYEE')`, division-supervisor check LR-2, date checks LR-5, enum checks, `submittedAt`), `src/app/(protected)/employee/leave-form.tsx` (new, `'use client'`, `useActionState`, per-field errors, confirm before submit), `src/app/(protected)/employee/page.tsx` (mount the card).
+- **Traces:** U12; AC-21…24, AC-35 (submit row); design §1, LR-1/2/3/5, §4 (employee card), §6.
+- **Check:** AC-21 (row-created half) — as `employee-1`: fill the form (Annual leave, tomorrow → +3 days, Supervisor 1) → confirm → success; the row exists as "Pending supervisor" (verify in Studio; its appearance in `supervisor-1`'s queue is confirmed in Task 16). AC-22 — empty form → four per-field errors; end before start → the date-order error; nothing saved. AC-23 — Other without reason refused; with reason accepted; reason field hidden for other types. AC-24 — picker shows only Supervisor 1 and 2; cookie POST with `hr-1`'s id as supervisor refused. AC-35 — dismissing the submit confirmation saves nothing. `npm run lint` passes.
+
+## Task 15 – My requests list (employee) *(High)*
+
+- **Goal:** Under the form, a **My requests** card shows the session user's own requests newest-first with type, "Start → End", a status badge, and remarks when present — the query filters by `employeeId = session user` (FR-06, employee part).
+- **Files:** `src/lib/leave.ts` (status/type display labels; the employee query of LR-10), `src/app/(protected)/status-badge.tsx` (new, shared), `src/app/(protected)/employee/request-list.tsx` (new, `'use client'` — list shell for now; the Send button arrives in Task 18), `src/app/(protected)/employee/page.tsx` (mount it).
+- **Traces:** U17; AC-21 (list half), AC-33 (employee row); design LR-10, §4 (My requests card), §4 badges.
+- **Check:** after Task 14's submissions, `employee-1` sees own requests newest-first with correct badges and remarks. Do not create extra users — the six Reference B accounts stay the only users (rules 10/LR-13); verify privacy two ways instead: only rows with this employee's id appear, and a read of the query in `src/lib/leave.ts` shows the `employeeId` filter (the query is the control, LR-10). The Admin and supervisor pages show nothing new yet. `npm run lint` passes.
+
+## Task 16 – Supervisor queue + Sign *(High)*
+
+- **Goal:** `/supervisor` shows **Awaiting your signature** — only `PENDING_SUPERVISOR` rows naming the session supervisor — each with a **Sign** pill: confirm → action → success → row leaves the queue and becomes "Signed" (FR-03 first half). A **Your decided requests** card shows the rows naming them that have left the queue (everything except Pending supervisor — design §4).
+- **Files:** `src/app/(protected)/supervisor/page.tsx` (the two cards), `src/app/(protected)/supervisor/queue.tsx` (new, `'use client'`, Sign form), `src/app/actions/leave.ts` (`supervisorDecide` — sign path: `requireUser('SUPERVISOR')`, row's `supervisorId = me`, status still `PENDING_SUPERVISOR`, set `signedAt`), `src/lib/leave.ts` (supervisor queries).
+- **Traces:** U14, U17, U18; AC-26, AC-28 (visibility half), AC-33 (supervisor row), AC-35 (sign); design §2 table, LR-3/7/10/11, §4.
+- **Check:** AC-21 (queue half) — the request submitted in Task 14 is present in `supervisor-1`'s queue with employee, type and dates. AC-26 — as `supervisor-1`, Sign the pending request → confirm → success; employee sees "Signed" (`signedAt` set — verify in Studio); row leaves the queue and appears in "Your decided requests". AC-28 (visibility) — a request naming Supervisor 1 never appears for `supervisor-2`. AC-33 (supervisor) — `supervisor-2`'s two cards show only rows naming them. AC-35 — dismissing the Sign confirmation changes nothing. `npm run lint` passes.
+
+## Task 17 – Supervisor Reject + remark *(High)*
+
+- **Goal:** Each queue row gains a remark input and a **Reject** pill: empty remark refused with "A remark is required"; with a remark, confirm → success → "Rejected by supervisor" (Final), remark visible to the employee (FR-03 second half).
+- **Files:** `src/app/(protected)/supervisor/queue.tsx` (remark input + Reject), `src/app/actions/leave.ts` (`supervisorDecide` reject path: remark rule LR-4, status `REJECTED_SUPERVISOR`, `supervisorRemark` + `decidedAt`).
+- **Traces:** U14, U17, U18; AC-27, AC-28 (cookie POST), AC-35 (reject); design §2, LR-4/7/11, §6.
+- **Check:** AC-27 — Reject with empty remark refused (client and, via cookie POST, server); with a remark → confirm → success; the employee's list shows "Rejected by supervisor" with the remark. AC-28 — cookie POST Sign/Reject for a request naming Supervisor 1 with `supervisor-2`'s cookie → refused; `supervisor-1` confirms status unchanged. AC-35 — dismissing the Reject confirmation leaves the row Pending supervisor. `npm run lint` passes.
+
+## Task 18 – Send to HR *(High)*
+
+- **Goal:** A **Send to HR** pill appears on the employee's own `SIGNED` rows only: confirm → action → success → "Pending HR", and the request appears in **both** HR officers' view (FR-04).
+- **Files:** `src/app/(protected)/employee/request-list.tsx` (Send button on SIGNED rows), `src/app/actions/leave.ts` (`sendToHr`: `requireUser('EMPLOYEE')`, row's `employeeId = me`, status `SIGNED` → `PENDING_HR`).
+- **Traces:** U15, U18; AC-29, AC-30, AC-35 (send); design §2, LR-3/9/11.
+- **Check:** AC-29 — as `employee-1`, Send to HR on the Signed request → confirm → success → "Pending HR"; visible in `hr-1`'s and `hr-2`'s queue queries (verify via Studio until Task 19 builds the HR page). AC-30 — no button on any non-SIGNED row; cookie POST for a `PENDING_SUPERVISOR` request refused; cookie POST with `supervisor-1`'s cookie refused (fails the EMPLOYEE role check and the ownership check). AC-35 — dismissing the confirmation leaves it Signed. `npm run lint` passes.
+
+## Task 19 – HR queue + Approve/Reject + first-decision-wins *(High)*
+
+- **Goal:** `/hr` shows the shared **Awaiting HR** queue with Approve and Reject(+remark) pills, and an **HR decisions** card naming the officer who decided. The first decision sticks; a second officer's stale page is refused with "Already decided by {name}" (FR-05).
+- **Files:** `src/app/(protected)/hr/page.tsx` (two cards), `src/app/(protected)/hr/queue.tsx` (new, `'use client'`), `src/app/actions/leave.ts` (`hrDecide`: `requireUser('HR')`, status must still be `PENDING_HR` (LR-7), sets `hrOfficerId` (+`hrRemark`, Final) and `decidedAt`), `src/lib/leave.ts` (HR queries of LR-10).
+- **Traces:** U16, U17, U18; AC-31, AC-32, AC-33 (HR row), AC-35 (HR actions); design §2, LR-3/4/7/8/10/11.
+- **Check:** AC-31 — `hr-1` approves → confirm → success → "Approved"; `hr-2` rejects another: empty remark refused, with remark → "Rejected by HR", remark visible to the employee. AC-32 — with request X open in two browsers (hr-1 + hr-2): `hr-1` decides first; `hr-2`'s attempt shows "Already decided by HR 1" and Studio still shows `hrOfficerId` = hr-1. AC-33 (HR) — HR lists include only rows that reached the HR queue; a supervisor-rejected row never appears. AC-35 — dismissing HR confirmations changes nothing. `npm run lint` passes.
+
+## Task 20 – Submission guardrails *(Medium)*
+
+- **Goal:** The submit action also enforces the U13 extras: past start dates refused, overlap with the employee's own non-final requests refused, text fields capped at 500 chars, and a division with no supervisor gets the friendly empty-picker message.
+- **Files:** `src/lib/leave.ts` (LR-5/4/6 validators + the empty-picker case), `src/app/actions/leave.ts` (call them in `submitLeaveRequest`), `src/app/(protected)/employee/leave-form.tsx` (picker-empty message; textarea `maxLength`).
+- **Traces:** U13; AC-23 (final check), AC-25; design LR-4/5/6, §6.
+- **Check:** AC-25 — start yesterday refused; overlapping an open request refused with the clear message; after a rejection the same dates submit fine; in Studio set `employee-1`'s division to Marketing → picker shows "No supervisor is available in your division — contact HR" → restore Finance in Studio (**the seed restores passwords, not the division** — design rule 10/LR-13) and confirm the picker lists both supervisors again. A 501-char remark/reason is refused by the server (cookie POST, since the client caps input at 500). `npm run lint` passes.
+
+## Task 21 – Admin All-leave list *(Medium)*
+
+- **Goal:** `/admin` gains the **All leave requests** card: every request with employee, division, type, dates, status, both remarks and deciding officer, newest submitted first — server-rendered, zero controls (FR-08).
+- **Files:** `src/app/(protected)/admin/page.tsx` (second card + the Admin query of LR-10).
+- **Traces:** U19; AC-34; design LR-10/12, §4 (admin card), §5.
+- **Check:** AC-34 — as `admin`, the card lists every request with all columns and correct newest-first order; no buttons or inputs exist on it (inspect the HTML); cookie POST each leave action (sign, reject, send, approve) with the Admin cookie → refused; re-check statuses unchanged. The users card with Reset password still works (no regression). `npm run lint` passes.
+
+## Task 22 – Full spec check + lint *(High)*
+
+- **Goal:** The whole leave module is walked through requirements §4 end to end, exactly as a reviewer would — including the six-action confirm/success sweep — with lint clean and no login regression.
+- **Files:** none new — `01-requirements.md` §4 (Leave part) statuses get ticked, and this file's Task 13–22 rows go to Done.
+- **Traces:** FR-02…FR-08, FR-10; every leave AC; `AGENTS.md` ("`npm run lint` must pass before a task is Done").
+- **Check:** from a clean state (delete `dev.db` → migrate init → migrate leave_request → `npm run db:seed`): run **every** row AC-21…AC-35 and tick each, ideally as one continuous story (employee submits → supervisor-1 signs → employee sends → hr-1 approves → admin sees it all). AC-35 sweep: dismiss then accept each of the six actions. Regression: AC-01 (six logins) and AC-11 (seed unchanged, still users-only) still pass. No remark or personal data printed to the dev terminal. `npm run lint` exits with no errors.

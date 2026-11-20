@@ -91,3 +91,93 @@ Demo accounts (doc §7.2): `employee-1@budiman.com`, `supervisor-1@budiman.com`,
 - Lockout that survives a server restart (the counter is in-memory; restarting `npm run dev` clears it — acceptable for a laptop demo).
 - Rate limiting on anything other than the login form.
 - Session invalidation of *other* devices (no per-device session store; the cookie is simply signed and time-limited).
+
+---
+
+# Leave Request – Requirements
+
+> **This file answers:** What should the app do, and why?
+> **Who:** The AI drafted it from the interview (2026-11-20) and `docs/Agentic AI - HRMS Doc.pdf` §4–§6, §7.2. You review it.
+>
+> When the app's behaviour needs to change, update this file **first**.
+>
+> Scope: the full leave request flow (doc §5.1) — submit, supervisor signs or
+> rejects, employee sends to HR, HR decides — plus each role's request lists and
+> the Admin's view-only list (FR-02…FR-08). Everything the Login & Access part
+> above already guarantees (login, sessions, role checks, OWASP rules — FR-01,
+> FR-10) applies to every screen and action here too.
+
+## 1. The problem (doc §2)
+
+Budiman Company processes leave on paper: the employee fills a form, the
+supervisor signs it, HR copies it into a spreadsheet. Forms get lost, employees
+cannot see where their request is, and HR has no single list of requests waiting
+for a decision. This module gives the company:
+
+1. One digital request per leave, visible from submission to decision.
+2. A supervisor queue that only holds the requests naming that supervisor.
+3. A shared HR queue where either officer decides and the system records who did.
+4. Each role sees only the requests it needs to act on; the Admin sees everything, view only (doc §3).
+
+## 2. Who uses it (roles)
+
+Demo accounts and passwords: doc §7.2 — everyone logs in with their email and `password123`. The employee and both supervisors are in Finance, so `employee-1@budiman.com` can choose either supervisor.
+
+| Role | Home page | What they see | What they can do | Doc |
+|------|-----------|---------------|------------------|-----|
+| **Employee** | `/employee` | Their own requests (current and past), with status and remarks | Submit a leave request; send their own Signed request to HR | FR-02, FR-04, FR-06 |
+| **Supervisor** | `/supervisor` | Requests **naming them** (current and past), with status and remarks | Sign or reject a request in their queue; a rejection needs a remark | FR-03, FR-06 |
+| **HR** | `/hr` | Requests that reached the HR queue (Pending HR, Approved, Rejected by HR) | Approve or reject any request in the shared queue; a rejection needs a remark; the officer who decides is recorded | FR-05, FR-06 |
+| **Admin** | `/admin` | Every leave record, newest submitted first | Nothing on leave data — view only | FR-08 |
+
+Supervisors, HR and Admin never submit leave requests — only the Employee role
+has the New request form (doc §5.3.2, strict reading: "Employees apply for
+leave. Supervisors and HR only decide").
+
+## 3. User stories
+
+- **U12. Submit a leave request** *(High)*. As an employee, I fill one form — leave type (plus "what is it for" when the type is Other), start date, end date, and a supervisor picked from my own division — and submit it, so my request enters the system as **Pending supervisor** instead of paper (doc §5.2, FR-02). Required fields are checked on the server, not just in the form.
+- **U13. Sensible guardrails on submission** *(Medium)*. As Budiman, the submit action refuses obvious mistakes: start date in the past, end before start, remarks/reasons over 500 characters, and a new request whose dates overlap **my own** request still in a non-final state (Pending supervisor / Signed / Pending HR). Overlapping a Rejected or Approved request is allowed, so I can re-apply after a rejection. A division with no supervisor gets a friendly message instead of an empty picker. (Beyond doc §6 → Medium per doc §1.2.)
+- **U14. Supervisor signs or rejects** *(High)*. As a supervisor, I see only the requests that name me and I sign one (it becomes **Signed**) or reject it **with a remark** (it becomes **Rejected by supervisor**, final) — so nothing gets lost and my queue is mine (doc §5.2, §5.3.4, FR-03).
+- **U15. Employee sends a signed request to HR** *(High)*. As an employee, once my request is Signed I press **Send to HR**, and it joins the shared HR queue as **Pending HR** — only I can send my own request, and only when it is Signed (doc §5.3.5, FR-04).
+- **U16. HR decides** *(High)*. As an HR officer, I approve (request becomes **Approved**) or reject **with a remark** (becomes **Rejected by HR**, final) any request in the shared queue; the system records **which officer** decided, and if a colleague decided first my attempt is refused with a clear "already decided" message — the first decision is the record (doc §5.2, §5.3.5, FR-05).
+- **U17. Each role sees its own work** *(High)*. As a user, I see the current and past requests relevant to me — employee: my own; supervisor: the ones naming me; HR: everything that reached the HR queue — each with status, dates and remarks, and nothing that belongs to another role's work (doc §3 goal 2, FR-06).
+- **U18. Confirm first, success afterwards** *(High)*. As any user, every leave action (submit, sign, reject, send to HR, HR approve, HR reject) asks for confirmation before it happens and shows a success message after — same pattern as the Admin password reset (doc §5.3.7, FR-07).
+- **U19. Admin sees every leave record** *(Medium)*. As an Admin, I see one plain list of every request — employee, division, leave type, dates, status, both remarks, deciding officer — newest submitted first, with no way to change anything (doc §5.3.6, FR-08).
+
+## 4. Acceptance checklist
+
+Hand-test with the six demo accounts (doc §7.2): `employee-1`, `supervisor-1`,
+`supervisor-2` (all Finance), `hr-1`, `hr-2`, `admin` — password `password123`.
+"Cookie POST" means: copy the server action's form action URL and post it with
+`curl` while holding only that user's session cookie (as in AC-08).
+
+| Status | ID | Check | How to test |
+|--------|----|-------|-------------|
+| To do | AC-21 | Submitting a complete request creates it as Pending supervisor (U12, U17, U18) | • Log in as `employee-1` → `/employee` shows a **New leave request** card<br>• Pick Annual leave, start tomorrow, end in 3 days, supervisor "Supervisor 1" → Submit → confirm → success message<br>• The request shows in the employee's list as "Pending supervisor"<br>• It appears in `supervisor-1@budiman.com`'s queue |
+| To do | AC-22 | Empty fields and an inverted date range show per-field errors (U12) | • Submit the form with everything empty → "required" errors under type, start date, end date, supervisor<br>• Set end date before start date → "End date cannot be before the start date"<br>• Nothing is saved: the list is unchanged |
+| To do | AC-23 | "Other" needs a reason; other types don't (U12) | • Type = Other, "What is the leave for?" empty → field error, nothing saved<br>• Fill the reason → it submits<br>• Type = Annual leave → the reason field is not shown and not required |
+| To do | AC-24 | Supervisor picker lists only supervisors of my own division (U12) | • As `employee-1` (Finance) the picker shows exactly Supervisor 1 and Supervisor 2 — no HR users, no Admin<br>• Cookie POST the submit action with a foreign user id as the supervisor (e.g. `hr-1`'s id) → refused on the server, nothing saved (AC-08 style) |
+| To do | AC-25 | Guardrails: future dates only, no overlap with my open requests, text ≤ 500 chars (U13) | • Start date yesterday → "Start date cannot be in the past"<br>• With a Pending supervisor request 1–5 Dec, submit another covering 3–4 Dec → refused with a "you already have a request covering those dates" message<br>• Rejected or Approved requests do not block the same dates: reject a 1–5 Dec request, then re-submit 1–5 Dec → accepted<br>• Cookie POST the submit action with a 501-character reason (`otherLeaveType`, type Other) → refused; the form caps the textarea at 500 characters<br>• In Prisma Studio set `employee-1`'s division to Marketing → the picker is empty with "No supervisor is available in your division — contact HR" → restore Finance |
+| To do | AC-26 | A supervisor signs a request (U14, U18) | • Log in as `supervisor-1` → the employee's Pending supervisor request is in the queue → **Sign** → confirm → success message<br>• Status becomes "Signed" in the employee's list; `signedAt` is set (check in Prisma Studio)<br>• The employee's row now offers **Send to HR** |
+| To do | AC-27 | Rejection needs a remark; the employee sees it (U14, U17) | • `supervisor-1` clicks Reject with the remark empty → refused ("A remark is required")<br>• Type a remark → Reject → confirm → success message<br>• The employee's list shows "Rejected by supervisor" and the remark |
+| To do | AC-28 | A supervisor can only act on requests naming them (U14, U17) | • A request naming Supervisor 1 never appears for `supervisor-2`<br>• Cookie POST the sign/reject action for that request with `supervisor-2`'s cookie → refused on the server; status unchanged (re-check as `supervisor-1`) |
+| To do | AC-29 | The employee sends a Signed request to HR (U15, U18) | • As `employee-1`, press **Send to HR** on the Signed request → confirm → success message<br>• Status becomes "Pending HR"<br>• The request appears in **both** `hr-1`'s and `hr-2`'s queues |
+| To do | AC-30 | Only the owner, only when Signed (U15) | • A request that was never Signed shows no Send to HR button<br>• Cookie POST the send action for a Pending supervisor request → refused<br>• Cookie POST it with `supervisor-1`'s cookie → refused — fails both the EMPLOYEE role check and the ownership check |
+| To do | AC-31 | HR approves; HR rejects only with a remark (U16, U18) | • `hr-1` opens the Pending HR request → **Approve** → confirm → success → status "Approved"<br>• `hr-2` opens another Pending HR request → Reject with empty remark → refused → type a remark → Reject → confirm → success → status "Rejected by HR", remark visible to the employee |
+| To do | AC-32 | The deciding officer is recorded; first decision wins (U16) | • `hr-1` approves request X; success message shows<br>• `hr-2` still has request X open and clicks Approve → refused: "Already decided by HR 1" — nothing changes<br>• The Admin list shows `hr-1` as the deciding officer for X |
+| To do | AC-33 | Each role sees only its own work (U17) | • `employee-1` sees all **own** requests (every status, with dates and remarks) and none of anyone else's<br>• `supervisor-1` sees every request **naming them** (current and past); a request naming Supervisor 2 is never shown<br>• `hr-1` sees only requests that reached the HR queue (Pending HR / Approved / Rejected by HR) — a request rejected by a supervisor never appears |
+| To do | AC-34 | Admin sees every record and changes nothing (U19) | • Log in as `admin` → `/admin` keeps the users card and adds an **All leave requests** card: every request with employee, division, type, dates, status, both remarks and the deciding officer, newest submitted first<br>• No buttons or inputs on that card<br>• Cookie POST any leave action (sign, reject, send, approve) with the Admin cookie → refused on the server; statuses unchanged |
+| To do | AC-35 | Confirm first, success after — every action (U18) | • For each of the six actions (submit, sign, reject, send to HR, HR approve, HR reject): dismiss the confirmation → nothing changes; accept it → the change happens and a success message shows |
+
+## 5. Not included (for now)
+
+- **No withdraw, no edit.** A submitted request is final except for the two decisions and Send to HR. All rejections are Final (doc §5.2); fixing a wrong request means submitting a fresh one (overlaps vs Rejected/Approved are allowed, AC-25).
+- **Supervisors, HR and Admin cannot book their own leave** — only the Employee role submits (doc §5.3.2 strict reading; interview answer 1).
+- **No day counting.** Lists show "Start → End" only; no working-days field or calculation (interview answer 7).
+- **No leave balances, quotas or entitlements** — nothing in doc §7.2 asks for them.
+- **No notifications or email** — no email infrastructure exists (same reason as "no forgot password" above).
+- **No attachments** (no "supporting document" upload).
+- **No filters, search or pagination** on any list, including the Admin's (interview answer 8).
+- **No supervisor delegation** — if the named supervisor is away, the request waits (queue is personal, interview answer 5).
+- **The seed stays users-only** — test requests are created through the UI, never by `npm run db:seed` (interview answer 9; AC-11 unchanged).
