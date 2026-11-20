@@ -7,8 +7,9 @@
 > If this file and the requirements disagree, fix the requirements first,
 > then this file.
 >
-> Scope: implements `01-requirements.md` U1–U9 (login, sessions, role access,
-> seed, Admin password reset). The leave-request module will extend this file later.
+> Scope: implements `01-requirements.md` U1–U11 (login, sessions, role access,
+> seed, Admin password reset, change my password, header user menu). The
+> leave-request module will extend this file later.
 
 ## 1. Tables
 
@@ -48,6 +49,7 @@ Notes:
 9. **Admin's one exception.** Admin can see everything and change nothing, **except** one action: "Reset password", which sets any one user's password to `password123` (bcrypt-hashed). It always resets to that fixed value — Admin never types a new password — asks for confirmation first, and shows a success message afterwards (doc §5.3.6/7, U9).
 10. **Seed is the only writer.** `npm run db:seed` upserts the six demo users of Reference B by email: re-running never duplicates, and restores `password123` on all six.
 11. **No secrets in the wrong place.** `SESSION_SECRET` lives in `.env.local` (git-ignored); a placeholder `.env.example` is committed. Passwords and secret values are never printed by the dev server, never put in a cookie, and never sent to the browser.
+12. **Your password is yours to change.** Any signed-in user may replace **their own** password from a card on their home page: they type the current password (bcrypt-compared) and the new one twice. Server-side rules: all three fields required, new password at least 8 characters, the two new entries identical, and the new password different from the current one (U10, AC-16…AC-19). The form carries no user id — the action changes exactly the session user, never anyone else. The session stays valid after the change (rule 4: there is no per-device store to revoke; rule 5 still re-reads the user each request).
 
 ## 3. Technology
 
@@ -75,9 +77,10 @@ The layout under `(protected)` runs the check of rule 5 on every request; the ac
 | `/supervisor` | Supervisor | Home-page shell for the supervisor | To do |
 | `/hr` | HR | Home-page shell for HR | To do |
 | `/admin` | Admin | Home-page shell + the users list (name, email, role, division) with one **Reset password** button per row: confirm → action → success message (U9) | To do |
-| *(action)* `logout` | Logged in | Header button on every protected page posts the `logout` action: deletes the cookie, redirects to `/login` (U5). Not a GET route, so the Back button cannot revive it. | To do |
+| *(action)* `logout` | Logged in | The Log out item of the header user menu posts the `logout` action: deletes the cookie, redirects to `/login` (U5). Not a GET route, so the Back button cannot revive it. | To do |
+| `/change-password` | Logged in (any role) | Change my password form: current password + new password typed twice + Change password button; field errors, "Current password is incorrect", and a success message (U10, rule 12). Reached from the header user menu; the layout's `requireUser()` guard applies. | To do |
 
-Every protected page shares one layout: Budiman HRMS header with the signed-in user's name, role badge, and the Log out button.
+Every protected page shares one layout: Budiman HRMS bold white on the left, and on the right the **user menu** (U11): a trigger pill with the user's name, role badge and a chevron; clicking opens a glass dropdown with **Change password** (link to `/change-password`) and **Log out** (posts the logout action). It closes on outside click and Escape.
 
 ### 4.1 The look — "Liquid Glass"
 
@@ -113,8 +116,15 @@ messages, accessible names and behaviour stay exactly as specified above and in 
   come only from the seed (rule 10); dead links would be invented features.
 - **Protected shell:** the same gradient fills the viewport; the header becomes a glass bar
   (`bg-white/10 backdrop-blur-md border-b border-white/15`) with "Budiman HRMS" in bold
-  white, the user's name in white, the role badge as a white/20 pill with white text, and
-  Log out as a `bg-white/15 hover:bg-white/25 text-white rounded-full` pill. Home-page cards
+  white, and on the right the **user menu** (U11): the trigger is a
+  `bg-white/15 hover:bg-white/25 text-white rounded-full` pill showing the name, the role
+  badge as a white/20 inner pill, and a small chevron; the opened menu is a glass panel
+  (`absolute right-0 mt-2 w-44 rounded-xl border border-white/20 bg-white/10 backdrop-blur-md
+  shadow-2xl`) whose white items highlight on hover (`hover:bg-white/10`): Change password →
+  `/change-password`, and Log out. The header carries `relative z-50` so the open menu floats
+  **above** the page's own glass cards — frosted (`backdrop-blur`) cards create their own
+  stacking contexts, and without the raised header the menu paints behind them (seen
+  2026-11-20: "top menu dropdown cannot be seen"). Home-page cards
   and the Admin users table reuse the glass card recipe; table text is white, row borders
   `border-white/15`, and the per-row **Reset password** button is a small blue pill
   (`bg-blue-600 hover:bg-blue-500 rounded-full text-xs`).
@@ -132,12 +142,15 @@ messages, accessible names and behaviour stay exactly as specified above and in 
 | `src/lib/reference-data.ts` | The fixed division/designation lists of Reference A |
 | `src/lib/session.ts` | Create/verify/destroy the `hrms_session` cookie; `getSessionUser()`; `requireUser(role)` for layouts and actions (rule 5) |
 | `src/lib/lockout.ts` | The in-memory failed-attempt counter of rule 8 |
-| `src/app/actions/auth.ts` | Server Actions: `login`, `logout`, `adminResetPassword` — each re-checks role on the server (AC-08) |
-| `proxy.ts` | Optimistic redirects only (rule 7): no cookie → `/login`; cookie + wrong role → own home |
+| `src/app/actions/auth.ts` | Server Actions: `login`, `logout`, `adminResetPassword`, `changePassword` — each re-checks role/session on the server (AC-08, AC-19) |
+| `proxy.ts` | Optimistic redirects only (rule 7): no cookie → `/login`; cookie + wrong role → own home. Matcher covers the four homes, `/change-password`, `/login` and `/` |
 | `src/app/page.tsx` | Redirect logic for `/` |
 | `src/app/login/page.tsx` | The login screen (server component) |
 | `src/app/login/login-form.tsx` | `'use client'` form with `useActionState` for field errors and the generic message |
-| `src/app/(protected)/layout.tsx` | Session check + header + Log out; wraps all four homes |
+| `src/app/(protected)/layout.tsx` | Session check + header with the user menu; wraps all four homes and `/change-password` |
+| `src/app/(protected)/user-menu.tsx` | `'use client'` header dropdown: name/role/chevron trigger → **Change password** link + **Log out** (U11) |
+| `src/app/(protected)/change-password/page.tsx` | The Change password page (`requireUser()` — any role — + glass card) (U10) |
+| `src/app/(protected)/change-password/form.tsx` | `'use client'` change-my-password form with `useActionState` (U10) |
 | `src/app/(protected)/employee/page.tsx` | Employee home shell |
 | `src/app/(protected)/supervisor/page.tsx` | Supervisor home shell |
 | `src/app/(protected)/hr/page.tsx` | HR home shell |
@@ -145,9 +158,10 @@ messages, accessible names and behaviour stay exactly as specified above and in 
 
 ## 6. Security (in plain words)
 
-- **Every page** under `(protected)` runs `requireUser(role)`: valid signature, not expired, user still in the database, role allowed for that page. Wrong → redirect per rule 6.
+- **Every page** under `(protected)` runs `requireUser(role)`: valid signature, not expired, user still in the database, role allowed for that page. Wrong → redirect per rule 6. `/change-password` runs `requireUser()` with **no** role argument — any signed-in role may change their own password, and nobody who is not signed in ever reaches it.
 - **Every server action** runs the same check again before touching data — `login` checks the lockout and credentials, `logout` requires a session, `adminResetPassword` requires the ADMIN role on the server, so hand-crafting a POST with an employee cookie does nothing (AC-08).
 - **Passwords**: bcrypt hash in the DB only; compare with `bcrypt.compare`; never logged by the dev server, never included in cookies or error messages (AC-15, OWASP A02).
+- **Change my password** (rule 12): needs a live session **and** the correct current password; the form holds no user id, so a hand-crafted POST can only ever rewrite the session user's own hash (AC-19, OWASP A01).
 - **Authentication failures**: generic message, bcrypt compare always runs, per-email lockout (OWASP A07, AC-02/03/12).
 - **Access control**: checks are server-side only; hiding buttons is a courtesy, never the control (OWASP A01).
 - **Session cookie**: `httpOnly` keeps it out of page scripts (XSS), `sameSite=lax` blunts cross-site POSTs, 8-hour expiry limits a lost laptop, HMAC-SHA256 from `SESSION_SECRET` makes tampering fail closed (AC-13).
