@@ -10,7 +10,9 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { homeForRole, LOGIN_ROUTE, SESSION_COOKIE, verifySessionToken } from '@/lib/session'
 
-const PROTECTED_PREFIXES = ['/employee', '/supervisor', '/hr', '/admin']
+// Task 12 added /change-password: any signed-in role may open it, but a
+// logged-out visitor must never see it (page guard does the real check).
+const PROTECTED_PREFIXES = ['/employee', '/supervisor', '/hr', '/admin', '/change-password']
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -35,6 +37,14 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Task 9 file list: exactly these six route groups.
-  matcher: ['/employee/:path*', '/supervisor/:path*', '/hr/:path*', '/admin/:path*', '/login', '/'],
+  // Task 9's six route groups + /change-password (Task 12).
+  matcher: [
+    '/employee/:path*',
+    '/supervisor/:path*',
+    '/hr/:path*',
+    '/admin/:path*',
+    '/change-password',
+    '/login',
+    '/',
+  ],
 }

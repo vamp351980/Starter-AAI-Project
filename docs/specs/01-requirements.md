@@ -24,6 +24,7 @@ This module provides:
 4. Failed-login handling that does not leak which accounts exist, plus a lockout after repeated failures.
 5. The six demo accounts from doc §7.2, loaded by one seed command.
 6. One scoped Admin action: reset a user's password back to `password123` (exception to "Admin is view only").
+7. Change my password: any signed-in user can replace their own password on the **Change password page** (`/change-password`, reached from the header user menu), proving they know the current one (U10, U11).
 
 ## 2. Who uses it (roles)
 
@@ -44,11 +45,13 @@ Demo accounts and passwords: doc §7.2 — everyone logs in with their email and
 - **U2. Land on my role's home** *(High)*. As a logged-in user, I am taken to my own role's home page after login — and if I visit `/login` or `/` while already logged in, I am sent there instead — so that I start where my work is.
 - **U3. Other roles' pages stay closed** *(High)*. As a user, I cannot open another role's pages: when logged out I am sent to `/login`, when logged in with the wrong role I am sent back to my own home page, and every page and server action re-checks my role on the server (FR-01, FR-10).
 - **U4. Clear failures, no account leaks** *(High)*. As a user who mistypes their credentials, I get friendly field errors and one generic "Invalid email or password" message, so that nobody can discover which emails have accounts (OWASP A07).
-- **U5. Log out** *(High)*. As a logged-in user, I can log out from a button in the header of every page so that the next person on my laptop is not signed in as me.
+- **U5. Log out** *(High)*. As a logged-in user, I can log out from the user menu in the header of every page so that the next person on my laptop is not signed in as me.
 - **U6. Same demo accounts for everyone** *(High)*. As a developer or tester, I can load the six demo users with `npm run db:seed` so that everyone tests with the same logins (doc §7.2).
 - **U7. Sessions expire** *(Medium)*. As a user, my session lasts 8 hours and then asks me to log in again, so that a forgotten-open laptop does not stay open forever.
 - **U8. Lockout after guessing** *(Medium)*. As Budiman, the system blocks login for one email for 15 minutes after 5 consecutive failures, so that password guessing is slow (FR-10, OWASP A07).
 - **U9. Admin resets a forgotten password** *(Medium)*. As an Admin, I can reset any user's password back to `password123` with a confirmation step, so that a forgotten password does not stop work. This is the only change an Admin can make (explicit exception to doc §5.3.6).
+- **U10. Change my own password** *(Medium)*. As a signed-in user, I can change my own password on the Change password page (opened from the header user menu) by typing my current password and my new one twice, so that wanting a new password does not need the Admin (design rule 12).
+- **U11. User menu** *(Medium)*. As a signed-in user, the header shows my name; clicking it opens a dropdown with **Change password** and **Log out**, so the account actions sit in one obvious place instead of crowding the header.
 
 ## 4. Acceptance checklist
 
@@ -66,18 +69,23 @@ Demo accounts (doc §7.2): `employee-1@budiman.com`, `supervisor-1@budiman.com`,
 | Done | AC-06 | Logged-out users cannot open protected pages (U3) | • Log out or use a private window<br>• Type `/hr` (and `/employee`, `/supervisor`, `/admin`) directly in the address bar<br>• Each should redirect to `/login` |
 | Done | AC-07 | Wrong role is bounced to their own home, not shown or 404'd (U3) | • Log in as `employee-1@budiman.com`<br>• Type `/hr`, `/supervisor` and `/admin` in the address bar<br>• Each should redirect to `/employee` |
 | Done | AC-08 | Server actions re-check the role, not just the pages (U3) | • Log in as `employee-1@budiman.com`<br>• Open DevTools → Application → Cookies: the session cookie is `HttpOnly` and `SameSite=Lax`<br>• Submit any Admin or HR-only form URL by hand (e.g. copy the Admin reset form's action URL, POST to it with `curl` while still holding only the employee cookie)<br>• The action must be refused on the server — no password reset happens (verify via AC-14 that the target's password still works) |
-| Done | AC-09 | Logout works everywhere and cannot be walked back into (U5) | • On any page, the header shows a Log out button<br>• Click it → you land on `/login`<br>• Press the browser Back button → `/employee` (or any protected page) must not show data; it redirects to `/login` |
+| Done | AC-09 | Logout works everywhere and cannot be walked back into (U5, U11) | • On any page, the header user menu (your name + role badge) contains a Log out item<br>• Open it, click Log out → you land on `/login`<br>• Press the browser Back button → `/employee` (or any protected page) must not show data; it redirects to `/login` |
 | Done | AC-10 | `/login` and `/` send logged-in users home (U2) | • Log in as `hr-1@budiman.com`<br>• Type `/login` and then `/` in the address bar<br>• Both should redirect to `/hr` |
 | Done | AC-11 | `npm run db:seed` loads the six demo users and is safe to re-run (U6) | • Delete the SQLite file (path per `02-design.md`) and run `npm run db:seed`<br>• All six demo users exist and each logs in with `password123`<br>• Run `npm run db:seed` twice → still exactly six users, no duplicate error; a changed password (AC-12) is restored to `password123` |
 | Done | AC-12 | 5 failed logins lock that email for 15 minutes (U8) | • On `/login`, fail 5 times in a row with `employee-1@budiman.com` / `wrongpass`<br>• The 6th try — even with the **correct** password — shows "Too many attempts, try again later"<br>• `hr-1@budiman.com` can still log in (lockout is per email)<br>• Restart `npm run dev` (or wait 15 min) → `employee-1` can log in again |
 | Done | AC-13 | Sessions last 8 hours and carry secure flags (U7) | • Log in, open DevTools → Application → Cookies<br>• The session cookie is `HttpOnly`, `SameSite=Lax`, and its expiry is about 8 hours out<br>• Edit the expiry to a past time → visiting `/employee` redirects to `/login` |
 | Done | AC-14 | Admin resets a password; nobody else can (U9) | • Log in as `employee-1@budiman.com` (works), then log out<br>• Log in as `admin@budiman.com`<br>• Choose `employee-1` → "Reset password" → confirm the prompt → a success message appears<br>• `employee-1` logs in again with `password123`<br>• Log in as `employee-1`: no reset control is visible, and the Admin reset URL/action refuses them (AC-08) |
 | Done | AC-15 | Passwords are never stored or shown in plain text (U1, U6) | • After `npm run db:seed`, open the SQLite file (e.g. `sqlite3 dev.db "SELECT email, password FROM Users"`) or Prisma Studio<br>• Every password column holds a bcrypt hash (`$2a$` or `$2b$`), never `password123`<br>• Check the terminal running `npm run dev`: no login attempts print a password |
+| Done | AC-16 | A signed-in user can change their own password (U10) | • Log in as `employee-1@budiman.com` with `password123`<br>• Open the header user menu → Change password (lands on `/change-password`), in the card: current `password123`, new `newpass1234`, confirm `newpass1234`<br>• Success message shows and the session stays signed in<br>• Log out, sign in as `employee-1` with `newpass1234` → lands on `/employee`<br>• Restore with `npm run db:seed` |
+| Done | AC-17 | A wrong current password is refused and changes nothing (U10) | • Log in as `hr-1@budiman.com`<br>• Submit the card with current `wrongpass`, new `newpass1234` twice<br>• Error "Current password is incorrect" appears and `hr-1` can still sign in with `password123` afterwards |
+| Done | AC-18 | New-password rules are enforced on the server (U10) | • On the card try: new password `short` → "Use at least 8 characters"; new ≠ confirm → "Passwords do not match"; new same as current → "New password must be different from the current one"<br>• Nothing is saved: the old password still signs in |
+| Done | AC-19 | Only the session user's own password can change (U3, U10) | • The form holds no user id (inspect the HTML: inputs are currentPassword/newPassword/confirmPassword only)<br>• Hand-crafting the POST with an employee cookie can therefore change only that employee's password<br>• Logged out, every protected page including `/change-password` redirects to `/login` first |
+| Done | AC-20 | Header user menu offers Change password and Log out (U11) | • Sign in as any role → the header shows a pill with your name, role badge and a chevron<br>• Click it → a glass dropdown opens with **Change password** and **Log out**<br>• Change password → opens `/change-password`<br>• Click outside the menu or press Escape → the menu closes<br>• Open it again → Log out → lands on `/login` |
 
 ## 5. Not included (for now)
 
 - Password reset by email / "forgot password" link — no email infrastructure in this project (the Admin reset in U9 covers forgotten passwords).
-- Users choosing their own new password (login form only accepts, never sets; Admin reset always sets `password123`).
+- Password rules beyond U10's minimum (at least 8 characters): no expiry, no history, no complexity checks. Email-based recovery stays out — Admin reset (U9) still covers genuinely forgotten passwords.
 - "Remember me" option — sessions are always 8 hours.
 - Self-registration, account creation UI, 2FA, SSO.
 - Lockout that survives a server restart (the counter is in-memory; restarting `npm run dev` clears it — acceptable for a laptop demo).

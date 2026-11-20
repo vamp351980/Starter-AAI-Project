@@ -12,7 +12,9 @@ Do Low only if time is left, and only if you ask.
 
 The rows below are in build order: the database comes first, then login, then
 the smaller additions. Task 10 (the full check) runs last on purpose, even
-though tasks 7–9 are Medium — it re-checks everything at once.
+though tasks 7–9 are Medium — it re-checks everything at once. Tasks 11 and
+12 arrived later, with U10 and U11 (2026-11-20): they build after Task 10
+and tick their own AC rows and lint when done.
 
 | Status | # | Task | Priority | Checks (from requirements §4) |
 |--------|---|------|----------|-------------------------------|
@@ -26,6 +28,8 @@ though tasks 7–9 are Medium — it re-checks everything at once.
 | Done | 8 | Admin resets a password | Medium | AC-08, AC-14 |
 | Done | 9 | `proxy.ts` optimistic redirects | Medium | AC-06, AC-07 (faster path) |
 | Done | 10 | Full spec check + lint | High | AC-01…AC-15, `npm run lint` |
+| Done | 11 | Change my password | Medium | AC-16…AC-19, `npm run lint` |
+| Done | 12 | Header user menu + `/change-password` page | Medium | AC-09, AC-16 (via page), AC-19, AC-20, `npm run lint` |
 
 ---
 
@@ -100,3 +104,17 @@ though tasks 7–9 are Medium — it re-checks everything at once.
 - **Files:** none new — `docs/specs/01-requirements.md` §4 table statuses get ticked, and this file's statuses go to Done.
 - **Traces:** FR-01, FR-10; every AC; `AGENTS.md` ("`npm run lint` must pass before a task is Done").
 - **Check:** from a clean state (delete `dev.db` → Task 1 migrate → `npm run db:seed`), run **every** row AC-01…AC-15 of requirements §4 by hand and tick each. `npm run lint` exits with no errors. No password ever appears in the dev terminal or the cookie value (AC-15).
+
+## Task 11 – Change my password *(Medium)*
+
+- **Goal:** Every signed-in user can replace their own password from a card on their home page: current password required (bcrypt-compared), new one typed twice, all rules checked on the server (design rule 12).
+- **Files:** `src/app/actions/auth.ts` (`changePassword`: `requireUser()` first — no role argument, any signed-in user; validate, compare current, hash the new one), `src/app/(protected)/change-password-form.tsx` (`'use client'`, `useActionState`, Liquid Glass look of §4.1), `src/app/(protected)/layout.tsx` (mount the card under `{children}` so all four roles get it).
+- **Traces:** U10; AC-16…AC-19; design rule 12, §4 (shared card), §6.
+- **Check:** run AC-16…AC-19 of requirements §4 in order (restore the demo password afterwards with `npm run db:seed`). The card's HTML holds only the three password fields — no user id (AC-19). `npm run lint` exits with no errors.
+
+## Task 12 – Header user menu + `/change-password` page *(Medium)*
+
+- **Goal:** The header's account actions move into a dropdown: a pill with name + role badge + chevron opens a glass menu with **Change password** (navigates to the new `/change-password` page, which hosts the Task 11 form) and **Log out** (the same `logout` action). Outside click and Escape close it.
+- **Files:** `src/app/(protected)/user-menu.tsx` (new, `'use client'`), `src/app/(protected)/change-password/page.tsx` (new, `requireUser()` with no role + glass card), `src/app/(protected)/change-password/form.tsx` (relocated from `change-password-form.tsx`, minus the card chrome), `src/app/(protected)/layout.tsx` (render `UserMenu`; drop the mounted card), `src/proxy.ts` (add `/change-password` to the matcher and the protected prefixes).
+- **Traces:** U5, U10, U11; AC-09, AC-16 (via the page), AC-19, AC-20; design §4, §4.1, §5, §6; rule 7 (proxy covers the new route).
+- **Check:** AC-20 — sign in, the pill opens the menu; Change password → `/change-password` renders the form; outside click and Escape close it; Log out → `/login`. AC-16 — run the change flow on the new page (restore afterwards). AC-19 — logged out, `/change-password` redirects to `/login` (proxy, and again with the matcher temporarily `[]` to prove the page guard, as in Task 9). `npm run lint` exits with no errors.
