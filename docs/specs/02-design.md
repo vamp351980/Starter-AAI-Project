@@ -205,3 +205,184 @@ messages, accessible names and behaviour stay exactly as specified above and in 
 | `admin@budiman.com` | Admin | 00-193333 | Admin | Admin | Admin Manager |
 
 All six log in with `password123` (stored bcrypt-hashed). Names and IC numbers are made up.
+
+---
+
+# Leave Request – Design
+
+> **This file answers:** How is the leave module put together? (data, rules,
+> screens, where the code lives)
+> **Who:** The AI drafted it. You review all of it.
+>
+> If this file and the requirements disagree, fix the requirements first,
+> then this file.
+>
+> Scope: implements `01-requirements.md` U12–U19 (leave request flow). It
+> **extends** the Login & Access design above — same database file, same
+> session/role checks (rules 4–7), same Liquid Glass look (§4.1). Nothing in
+> the Login & Access part changes.
+
+## 1. Tables
+
+### `LeaveRequest` – one row per leave request (new)
+
+Same SQLite file (`dev.db`) and Prisma setup as `User` above.
+
+| Field | Type | Required? | What it holds |
+|-------|------|-----------|---------------|
+| `id` | number | auto | Unique number for the row (autoincrement) |
+| `employeeId` | number | yes | FK → `User` — the requester (doc §7.2 "Employee") |
+| `supervisorId` | number | yes | FK → `User` — the supervisor who must sign; always a SUPERVISOR **from the employee's division** (rule LR-2; doc §7.2 "Supervisor") |
+| `leaveType` | enum `LeaveType` | yes | One of the five types below (doc §7.2) |
+| `otherLeaveType` | text | only when `OTHER` | "What the leave is for" — required then, null otherwise |
+| `startDate` | date | yes | First day of leave; never in the past (LR-5) |
+| `endDate` | date | yes | Last day of leave; never before `startDate` (doc §7.2) |
+| `status` | enum `LeaveStatus` | yes | Where the request is now — the six states below |
+| `supervisorRemark` | text | on supervisor reject | The supervisor's reason; required when status becomes `REJECTED_SUPERVISOR` |
+| `hrOfficerId` | number | on HR decision | FK → `User` — the HR user who approved/rejected; null until then (records **who decided**, FR-05) |
+| `hrRemark` | text | on HR reject | The HR reason; required when status becomes `REJECTED_HR` |
+| `submittedAt` | datetime | auto | Set on submit |
+| `signedAt` | datetime | auto | Set when the supervisor signs |
+| `decidedAt` | datetime | auto | Set when the request becomes final (`APPROVED`, `REJECTED_SUPERVISOR`, `REJECTED_HR`) |
+
+Indexes: `(employeeId, status)` and `(supervisorId, status)` — the two queue
+queries; `(status, submittedAt)` for the shared HR queue and the Admin list.
+Dates are plain `DateTime`: SQLite has no native date type (`@db.Date` is
+unsupported by Prisma on SQLite — fixed in the spec 2026-11-20). Date-only
+semantics are enforced in the actions: submit normalizes `startDate`/`endDate`
+to UTC midnight, so no time of day ever enters the columns or the comparisons.
+
+The three FKs to `User` (`employeeId`, `supervisorId`, `hrOfficerId`) are each a
+Prisma relation, so `User` gains three named back-relations: `submittedRequests`,
+`supervisedRequests`, `hrDecisions`. A relation can only point at *a* user, not
+at a user *with a role* — so Prisma cannot enforce "the supervisor is a
+SUPERVISOR" or "the officer is an HR user". Those are enforced by the actions at
+write time (LR-2, LR-3), which is the only write path.
+
+### `LeaveType` – the choices on the leave form (enum, not a table)
+
+Doc §7.2 fixes the five types, so they are a Prisma enum plus a display-label
+map in code — the same treatment as divisions/designations (Reference A) and
+`Role`: a fixed list, never editable in the app.
+
+| Enum value | Shown as (doc §7.2) | Notes |
+|------------|--------------------|-------|
+| `ANNUAL` | Annual leave | Yearly paid leave |
+| `MATERNITY` | Maternity leave | For employees expecting or newly delivered |
+| `UNPAID` | Unpaid leave | Leave without pay |
+| `COMPASSIONATE` | Compassionate leave | Family emergency or bereavement |
+| `OTHER` | Other | `otherLeaveType` text required then |
+
+### `LeaveStatus` – where a request is now (enum)
+
+The six states of doc §5.2. "Shown as" is what every list and badge displays.
+
+| Enum value | Shown as | Meaning (doc §5.2) | Final? |
+|------------|----------|--------------------|--------|
+| `PENDING_SUPERVISOR` | Pending supervisor | Submitted; waiting for the supervisor | No |
+| `SIGNED` | Signed | Supervisor signed; employee can send to HR | No |
+| `PENDING_HR` | Pending HR | Sent to HR; waiting for a decision | No |
+| `APPROVED` | Approved | HR approved it | **Final** |
+| `REJECTED_SUPERVISOR` | Rejected by supervisor | Supervisor rejected it, with a remark | **Final** |
+| `REJECTED_HR` | Rejected by HR | HR rejected it, with a remark | **Final** |
+
+No new status exists (no "Withdrawn" — requirements §5).
+
+## 2. The workflow (state machine)
+
+Every status change happens through exactly one server action, in `src/app/actions/leave.ts`:
+
+| Current status | Actor (checked on server) | Action | Next status | Fields set |
+|----------------|---------------------------|--------|-------------|------------|
+| — | The employee themselves (EMPLOYEE home only) | Submit form | `PENDING_SUPERVISOR` | all form fields, `submittedAt` |
+| `PENDING_SUPERVISOR` | The **named** supervisor | Sign | `SIGNED` | `signedAt` |
+| `PENDING_SUPERVISOR` | The **named** supervisor | Reject + remark | `REJECTED_SUPERVISOR` | `supervisorRemark`, `decidedAt` |
+| `SIGNED` | The **owning** employee (EMPLOYEE home only) | Send to HR | `PENDING_HR` | — |
+| `PENDING_HR` | Any HR user | Approve | `APPROVED` | `hrOfficerId`, `decidedAt` |
+| `PENDING_HR` | Any HR user | Reject + remark | `REJECTED_HR` | `hrOfficerId`, `hrRemark`, `decidedAt` |
+
+No other transition is possible; the actions are the only writers (LR-3).
+
+## 3. Business rules
+
+Rules are numbered `LR-n` so "design rule 12" above always means the login rule.
+
+1. **LR-1 — Only employees submit.** `submitLeaveRequest` starts with `requireUser('EMPLOYEE')`. Supervisor, HR and Admin have no submit form and the action refuses their cookies (requirements §2).
+2. **LR-2 — The supervisor must be a real division supervisor.** On submit the server looks up `supervisorId`: it must exist, have role `SUPERVISOR`, and share the session user's `division` — never trusted from the form (AC-24). The picker lists exactly the SUPERVISOR users of the employee's own division; if there are none, the card shows "No supervisor is available in your division — contact HR" and there is nothing to submit (requirements U13).
+3. **LR-3 — Only the actions change status.** No table edits in the UI; the seed never writes `LeaveRequest` (requirements §5). Each action re-checks, on the server, in this order: valid session → required role → the row exists → the row is in the expected **current status** → the row belongs to this actor (named supervisor / owning employee; any HR for the HR queue). Wrong step → friendly refusal, nothing changes.
+4. **LR-4 — Remarks and reasons are validated server-side.** Supervisor and HR rejection remarks and `otherLeaveType` are required for their case: non-empty after trimming, max 500 characters (requirements U13). They are stored as plain text and rendered as React text (escaped) — never as HTML.
+5. **LR-5 — Dates.** `endDate` ≥ `startDate` (doc §7.2); `startDate` is today or later, compared as calendar dates on the server (interview answer 3). No maximum length. Invalid dates are refused before any insert.
+6. **LR-6 — No overlap with my open requests.** On submit, refuse if the employee already has a request in a non-final status (`PENDING_SUPERVISOR`/`SIGNED`/`PENDING_HR`) whose range `[startDate, endDate]` overlaps the new range ("you already have a request covering those dates"). Overlapping a `REJECTED_*` or `APPROVED` request is allowed — re-applying after a rejection is the way to fix a rejected request (requirements §5).
+7. **LR-7 — First decision wins.** Because the status check in LR-3 runs inside the action, a stale page cannot overwrite a decision: the supervisor sign/reject requires the row still `PENDING_SUPERVISOR`; the HR approve/reject requires it still `PENDING_HR`. A refused second attempt shows "Already decided by {name}" with the page refreshed (AC-32).
+8. **LR-8 — The record shows who did what.** `hrOfficerId` names the officer who decided (FR-05); remarks are stored at rejection time; `submittedAt`/`signedAt`/`decidedAt` are set by the server, never by forms.
+9. **LR-9 — No withdraw, no edit.** Employees get no cancel/edit control; rejected requests are Final (doc §5.2). The only employee-initiated moves are Submit and Send to HR.
+10. **LR-10 — Lists filter by role, on the server.** Each page's query itself restricts what can render (hiding rows is a courtesy, the query is the control — OWASP A01): employee → own rows only; supervisor → rows with `supervisorId = me` (any status); HR → rows that reached the HR queue (`PENDING_HR`, `APPROVED`, `REJECTED_HR`); Admin → all rows, `ORDER BY submittedAt DESC` (AC-33/34). Every list renders
+newest submitted first (design §4).
+11. **LR-11 — Confirm, then success.** Every one of the six actions asks for confirmation before running (the same confirm step used by the Admin password reset, design rule 9) and shows a success message after (FR-07, AC-35).
+12. **LR-12 — Admin is strictly view-only on leave.** The Admin gets no leave controls at all and every leave action refuses the ADMIN role; the password reset (rule 9) stays the Admin's only mutation anywhere (FR-08, AC-34).
+13. **LR-13 — Seed unchanged.** `npm run db:seed` still writes only the six Reference B users; AC-11 is untouched (interview answer 9).
+
+## 4. Screens (routes)
+
+Originally no new routes — the four home pages of §4 above grow cards, and
+`proxy.ts` already covers all four. **2026-11-20 change (user request):** one
+route was added, `/employee/new-request` — the leave form moved off the
+employee home page behind a **New Request** pill in the My requests card. The
+new page sits under `(protected)`, so it inherits the same session wall, and
+the page itself re-checks the EMPLOYEE role (rule LR-3 style, like every
+screen). All cards reuse the glass card recipe and the message colours of
+§4.1; buttons stay blue pills; every list row is a table row with
+white text and `border-white/15` borders, like the Admin users table.
+
+| Route | Who | What it gains |
+|-------|-----|---------------|
+| `/employee` | Employee | **My requests** card: own requests newest-first — type, dates "Start → End", status badge, remarks when present, and a **Send to HR** pill on `SIGNED` rows only. A **New Request** pill at the top of the card links to `/employee/new-request` (2026-11-20: the home page no longer hosts the form) |
+| `/employee/new-request` | Employee | **New leave request** card (moved here 2026-11-20): leave type select (pill), the reason textarea that appears only for Other, start/end date inputs, supervisor select (own division), blue Submit pill (confirm → success). A **Back to my requests** link returns to `/employee` |
+| `/supervisor` | Supervisor | **Awaiting your signature** card: `PENDING_SUPERVISOR` rows naming them — employee, type, dates — each row with **Sign** and **Reject** pills plus a remark input beside Reject (confirm → success). **Your decided requests** card: rows naming them that have **left the queue** — `SIGNED`, `PENDING_HR`, `APPROVED`, `REJECTED_SUPERVISOR`, `REJECTED_HR` — with remarks (a request still Pending supervisor belongs only in the queue card above) |
+| `/hr` | HR | **Awaiting HR** card: the shared `PENDING_HR` queue (same rows for hr-1 and hr-2) with Approve / Reject + remark, same pattern. **HR decisions** card: `APPROVED` / `REJECTED_HR` rows with the deciding officer's name |
+| `/admin` | Admin | Keeps the users card; adds an **All leave requests** card (wider, `max-w-5xl`): every request — employee, division, type, dates, status, both remarks, deciding officer — newest submitted first. No buttons, no inputs (LR-12) |
+
+Status badges (glass pills on the card, same frosted style): amber family
+(`bg-amber-400/20 text-amber-100`) for the two Pending states,
+sky (`bg-sky-400/20 text-sky-100`) for Signed, emerald
+(`bg-emerald-400/20 text-emerald-100`) for Approved, rose
+(`bg-rose-400/25 text-rose-100`) for both Rejected states.
+
+## 5. Where the code lives (new files only)
+
+| Folder / file | What's in it |
+|---------------|--------------|
+| `prisma/schema.prisma` | + `LeaveRequest` model, `LeaveType` and `LeaveStatus` enums, the three named `User` back-relations (§1 note) |
+| `src/lib/leave.ts` | The single source for type/status display labels, the date/overlap/remark validators of LR-4…LR-6, and the per-role list queries of LR-10 |
+| `src/app/actions/leave.ts` | Server Actions: `submitLeaveRequest`, `supervisorDecide` (sign / reject), `sendToHr`, `hrDecide` (approve / reject) — each runs the LR-3 check chain before touching data |
+| `src/app/(protected)/status-badge.tsx` | Shared status badge (the colour map above) |
+| `src/app/(protected)/employee/page.tsx` | + mounts the My requests card and the New Request pill (2026-11-20: form card moved to the new page) |
+| `src/app/(protected)/employee/new-request/page.tsx` | Server page (2026-11-20): `requireUser('EMPLOYEE')`, division supervisor query, mounts the New leave request card with a Back link |
+| `src/app/(protected)/employee/leave-form.tsx` | `'use client'` submit form (`useActionState`, field errors, confirm before submit) |
+| `src/app/(protected)/employee/request-list.tsx` | `'use client'` own-requests list + Send to HR with confirm |
+| `src/app/(protected)/supervisor/page.tsx` | + queue and decided cards |
+| `src/app/(protected)/supervisor/queue.tsx` | `'use client'` Sign / Reject(+remark) rows |
+| `src/app/(protected)/hr/page.tsx` | + queue and decisions cards |
+| `src/app/(protected)/hr/queue.tsx` | `'use client'` Approve / Reject(+remark) rows |
+| `src/app/(protected)/admin/page.tsx` | + the server-rendered All-leave table (no client component — nothing to click) |
+
+Existing files are not otherwise touched: `session.ts`, `auth.ts`, the layout,
+the user menu and `proxy.ts` work as built.
+
+## 6. Security (in plain words)
+
+- **Server-side role checks** — each action calls `requireUser(role)` first (employee/supervisor/HR respectively); pages call it in their server component. Hiding a button is never the control (OWASP A01).
+- **Object-level checks** — beyond the role, each action re-reads the row and verifies status + ownership (named supervisor, owning employee). A hand-crafted POST with any wrong cookie or a stale status is refused (AC-24, AC-28, AC-30, AC-32, AC-34; OWASP A01).
+- **Forms carry no hidden authority** — the submit form posts leave fields only; the employee comes from the session, the supervisor id is validated against the division (LR-2). Action forms carry a request id, but the row ownership check makes a foreign id useless (OWASP A01).
+- **Inputs are validated on the server** exactly as the client is told — required, date order, future start, ≤ 500-char text, enum values only (OWASP A05). Remarks/reasons are stored and rendered as plain text; React escaping keeps them out of any HTML context (OWASP A03).
+- **No new secrets, no logging of personal data beyond what the page already shows** — actions log nothing sensitive to the terminal (AC-15 spirit).
+
+## 7. Commands
+
+Only one command is new; everything in §7 above stays.
+
+| Command | What it does |
+|---------|--------------|
+| `npx prisma migrate dev --name leave_request` | Create the `LeaveRequest` table and the two enums in `dev.db` |
+
+`npm run db:seed` keeps doing exactly what it did (LR-13); test requests are made through the employee form.

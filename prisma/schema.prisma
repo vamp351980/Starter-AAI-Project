@@ -28,4 +28,58 @@ model User {
   division    String
   designation String
   createdAt   DateTime @default(now())
+
+  // Leave Request – design §1 relations note: the three FKs of LeaveRequest
+  // each need a named back-relation here. A relation only points at *a* user
+  // — the actions enforce role and division at write time (LR-2, LR-3).
+  submittedRequests  LeaveRequest[] @relation("submittedRequests")
+  supervisedRequests LeaveRequest[] @relation("supervisedRequests")
+  hrDecisions        LeaveRequest[] @relation("hrDecisions")
+}
+
+// Leave Request – design §1: one row per leave request; the six states of
+// doc §5.2 and the five leave types of doc §7.2. All writes go through
+// src/app/actions/leave.ts (LR-3) — no status default on purpose, the
+// actions set every field, and the seed never writes this table (LR-13).
+
+enum LeaveType {
+  ANNUAL
+  MATERNITY
+  UNPAID
+  COMPASSIONATE
+  OTHER
+}
+
+enum LeaveStatus {
+  PENDING_SUPERVISOR
+  SIGNED
+  PENDING_HR
+  APPROVED
+  REJECTED_SUPERVISOR
+  REJECTED_HR
+}
+
+model LeaveRequest {
+  id               Int         @id @default(autoincrement())
+  employeeId       Int
+  supervisorId     Int
+  leaveType        LeaveType
+  otherLeaveType   String?
+  startDate        DateTime
+  endDate          DateTime
+  status           LeaveStatus
+  supervisorRemark String?
+  hrOfficerId      Int?
+  hrRemark         String?
+  submittedAt      DateTime    @default(now())
+  signedAt         DateTime?
+  decidedAt        DateTime?
+
+  employee   User  @relation("submittedRequests", fields: [employeeId], references: [id])
+  supervisor User  @relation("supervisedRequests", fields: [supervisorId], references: [id])
+  hrOfficer  User? @relation("hrDecisions", fields: [hrOfficerId], references: [id])
+
+  @@index([employeeId, status])
+  @@index([supervisorId, status])
+  @@index([status, submittedAt])
 }
