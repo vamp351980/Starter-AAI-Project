@@ -16,16 +16,16 @@ though tasks 7–9 are Medium — it re-checks everything at once.
 
 | Status | # | Task | Priority | Checks (from requirements §4) |
 |--------|---|------|----------|-------------------------------|
-| To do | 1 | Database + Users table | High | (design §1 — see task) |
-| To do | 2 | Seed the six demo users | High | AC-11, AC-15 |
-| To do | 3 | Session cookie library | High | (design rules 4–5 — see task) |
-| To do | 4 | Role home pages + protected layout | High | AC-06 |
-| To do | 5 | Login form + login action | High | AC-01…05, AC-07, AC-13 |
-| To do | 6 | Log out + `/` redirect | High | AC-09, AC-10 |
-| To do | 7 | Lockout after failed logins | Medium | AC-12 |
-| To do | 8 | Admin resets a password | Medium | AC-08, AC-14 |
-| To do | 9 | `proxy.ts` optimistic redirects | Medium | AC-06, AC-07 (faster path) |
-| To do | 10 | Full spec check + lint | High | AC-01…AC-15, `npm run lint` |
+| Done | 1 | Database + Users table | High | (design §1 — see task) |
+| Done | 2 | Seed the six demo users | High | AC-11, AC-15 |
+| Done | 3 | Session cookie library | High | (design rules 4–5 — see task) |
+| Done | 4 | Role home pages + protected layout | High | AC-06 |
+| Done | 5 | Login form + login action | High | AC-01…05, AC-07, AC-13 |
+| Done | 6 | Log out + `/` redirect | High | AC-09, AC-10 |
+| Done | 7 | Lockout after failed logins | Medium | AC-12 |
+| Done | 8 | Admin resets a password | Medium | AC-08, AC-14 |
+| Done | 9 | `proxy.ts` optimistic redirects | Medium | AC-06, AC-07 (faster path) |
+| Done | 10 | Full spec check + lint | High | AC-01…AC-15, `npm run lint` |
 
 ---
 

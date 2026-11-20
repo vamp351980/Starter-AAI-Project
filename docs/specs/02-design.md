@@ -79,6 +79,46 @@ The layout under `(protected)` runs the check of rule 5 on every request; the ac
 
 Every protected page shares one layout: Budiman HRMS header with the signed-in user's name, role badge, and the Log out button.
 
+### 4.1 The look — "Liquid Glass"
+
+Visual reference: `images/1000_F_1904220374_hNtJ3234qGrKZ9l5Uh4M3OvOHbMqrLgY.jpg` (the
+"Liquid Glass" variant of the three shown — decided 2026-11-20; the Dark and Light variants
+of the same picture are not used). This section changes **appearance only** — routes, checks,
+messages, accessible names and behaviour stay exactly as specified above and in §2/§6.
+
+- **Page background (every screen, login and protected alike):** one full-screen diagonal
+  gradient, teal at the top-left → mid blue → deep navy bottom-right
+  (≈ `bg-gradient-to-br from-teal-700 via-cyan-900 to-blue-950`). Content sits centred on it.
+- **Cards (login card, home cards, users list):** "liquid glass" — translucent white fill
+  (`bg-white/10`), frosted blur behind (`backdrop-blur-md`), 24 px corners (`rounded-3xl`),
+  hairline light edge (`border border-white/20`), soft shadow, inner padding 32 px (`p-8`),
+  max width 448 px (`max-w-md` for the login card; the admin users card stretches wider,
+  `max-w-3xl`).
+- **Headings:** white, bold, centred — "Sign in" / "Welcome, {name}" (`text-2xl`/`text-3xl`).
+- **Inputs:** full-width **pills** (`rounded-full`), translucent white fill (`bg-white/15`),
+  white text, dim-white placeholder (`placeholder-white/60`), comfortable height (≈ 44 px,
+  `py-2.5 px-5`), 16 px between fields (`space-y-4`). The field's visible text is the
+  placeholder ("Work email", "Password") like the reference; the `<label>` remains the
+  accessible name (visually hidden, still readable by screen readers and by the hand-tests
+  that fill "Work email").
+- **Primary button:** full-width blue **pill** (`bg-blue-600 hover:bg-blue-500 text-white
+  font-semibold rounded-full py-2.5`), 8 px below the last input — matches the reference's
+  blue "Sign in". Disabled while the action is pending (`disabled:opacity-60`).
+- **Messages:** shown in the reference's "Forgot Password?" slot — small, bold, centred under
+  the button: red family (`text-rose-200`) for errors/lockout/generic failure, green family
+  (`text-emerald-200`) for success (e.g. "Password reset for …"). Per-field errors appear
+  right under their input in `text-rose-200 text-xs`.
+- **Reference texts deliberately NOT copied:** "Forgot Password?" and "Don't have account?
+  Sign up" stay out — password recovery is the Admin-reset exception (rule 9) and accounts
+  come only from the seed (rule 10); dead links would be invented features.
+- **Protected shell:** the same gradient fills the viewport; the header becomes a glass bar
+  (`bg-white/10 backdrop-blur-md border-b border-white/15`) with "Budiman HRMS" in bold
+  white, the user's name in white, the role badge as a white/20 pill with white text, and
+  Log out as a `bg-white/15 hover:bg-white/25 text-white rounded-full` pill. Home-page cards
+  and the Admin users table reuse the glass card recipe; table text is white, row borders
+  `border-white/15`, and the per-row **Reset password** button is a small blue pill
+  (`bg-blue-600 hover:bg-blue-500 rounded-full text-xs`).
+
 ## 5. Where the code lives
 
 | Folder / file | What's in it |
