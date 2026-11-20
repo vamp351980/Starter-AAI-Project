@@ -1,0 +1,31 @@
+// Login & Access – design §1: one User row per person who can log in.
+// Format rules (email domain, IC format, Reference A choices) are enforced
+// by prisma/seed.ts — login never writes users.
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  EMPLOYEE
+  SUPERVISOR
+  HR
+  ADMIN
+}
+
+model User {
+  id          Int      @id @default(autoincrement())
+  name        String
+  icNo        String   @unique
+  email       String   @unique
+  password    String
+  role        Role
+  division    String
+  designation String
+  createdAt   DateTime @default(now())
+}
