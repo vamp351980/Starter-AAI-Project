@@ -1,0 +1,13 @@
+# dependencies
+node_modules/
+
+# build output
+.next/
+next-env.d.ts
+
+# database (design §1: one SQLite file, dev.db, in the project root)
+dev.db
+
+# secrets and local env
+.env
+.env.local
