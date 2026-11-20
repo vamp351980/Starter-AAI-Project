@@ -247,7 +247,10 @@ Same SQLite file (`dev.db`) and Prisma setup as `User` above.
 
 Indexes: `(employeeId, status)` and `(supervisorId, status)` — the two queue
 queries; `(status, submittedAt)` for the shared HR queue and the Admin list.
-Dates are `@db.Date` (date only — no time of day matters for leave).
+Dates are plain `DateTime`: SQLite has no native date type (`@db.Date` is
+unsupported by Prisma on SQLite — fixed in the spec 2026-11-20). Date-only
+semantics are enforced in the actions: submit normalizes `startDate`/`endDate`
+to UTC midnight, so no time of day ever enters the columns or the comparisons.
 
 The three FKs to `User` (`employeeId`, `supervisorId`, `hrOfficerId`) are each a
 Prisma relation, so `User` gains three named back-relations: `submittedRequests`,
@@ -321,14 +324,20 @@ newest submitted first (design §4).
 
 ## 4. Screens (routes)
 
-No new routes — the four home pages of §4 above grow cards, and `proxy.ts`
-already covers all four. All cards reuse the glass card recipe and the message
-colours of §4.1; buttons stay blue pills; every list row is a table row with
+Originally no new routes — the four home pages of §4 above grow cards, and
+`proxy.ts` already covers all four. **2026-11-20 change (user request):** one
+route was added, `/employee/new-request` — the leave form moved off the
+employee home page behind a **New Request** pill in the My requests card. The
+new page sits under `(protected)`, so it inherits the same session wall, and
+the page itself re-checks the EMPLOYEE role (rule LR-3 style, like every
+screen). All cards reuse the glass card recipe and the message colours of
+§4.1; buttons stay blue pills; every list row is a table row with
 white text and `border-white/15` borders, like the Admin users table.
 
 | Route | Who | What it gains |
 |-------|-----|---------------|
-| `/employee` | Employee | **New leave request** card: leave type select (pill), the reason textarea that appears only for Other, start/end date inputs, supervisor select (own division), blue Submit pill (confirm → success). Under it, a **My requests** card: own requests newest-first — type, dates "Start → End", status badge, remarks when present, and a **Send to HR** pill on `SIGNED` rows only |
+| `/employee` | Employee | **My requests** card: own requests newest-first — type, dates "Start → End", status badge, remarks when present, and a **Send to HR** pill on `SIGNED` rows only. A **New Request** pill at the top of the card links to `/employee/new-request` (2026-11-20: the home page no longer hosts the form) |
+| `/employee/new-request` | Employee | **New leave request** card (moved here 2026-11-20): leave type select (pill), the reason textarea that appears only for Other, start/end date inputs, supervisor select (own division), blue Submit pill (confirm → success). A **Back to my requests** link returns to `/employee` |
 | `/supervisor` | Supervisor | **Awaiting your signature** card: `PENDING_SUPERVISOR` rows naming them — employee, type, dates — each row with **Sign** and **Reject** pills plus a remark input beside Reject (confirm → success). **Your decided requests** card: rows naming them that have **left the queue** — `SIGNED`, `PENDING_HR`, `APPROVED`, `REJECTED_SUPERVISOR`, `REJECTED_HR` — with remarks (a request still Pending supervisor belongs only in the queue card above) |
 | `/hr` | HR | **Awaiting HR** card: the shared `PENDING_HR` queue (same rows for hr-1 and hr-2) with Approve / Reject + remark, same pattern. **HR decisions** card: `APPROVED` / `REJECTED_HR` rows with the deciding officer's name |
 | `/admin` | Admin | Keeps the users card; adds an **All leave requests** card (wider, `max-w-5xl`): every request — employee, division, type, dates, status, both remarks, deciding officer — newest submitted first. No buttons, no inputs (LR-12) |
@@ -347,7 +356,8 @@ sky (`bg-sky-400/20 text-sky-100`) for Signed, emerald
 | `src/lib/leave.ts` | The single source for type/status display labels, the date/overlap/remark validators of LR-4…LR-6, and the per-role list queries of LR-10 |
 | `src/app/actions/leave.ts` | Server Actions: `submitLeaveRequest`, `supervisorDecide` (sign / reject), `sendToHr`, `hrDecide` (approve / reject) — each runs the LR-3 check chain before touching data |
 | `src/app/(protected)/status-badge.tsx` | Shared status badge (the colour map above) |
-| `src/app/(protected)/employee/page.tsx` | + mounts the two cards |
+| `src/app/(protected)/employee/page.tsx` | + mounts the My requests card and the New Request pill (2026-11-20: form card moved to the new page) |
+| `src/app/(protected)/employee/new-request/page.tsx` | Server page (2026-11-20): `requireUser('EMPLOYEE')`, division supervisor query, mounts the New leave request card with a Back link |
 | `src/app/(protected)/employee/leave-form.tsx` | `'use client'` submit form (`useActionState`, field errors, confirm before submit) |
 | `src/app/(protected)/employee/request-list.tsx` | `'use client'` own-requests list + Send to HR with confirm |
 | `src/app/(protected)/supervisor/page.tsx` | + queue and decided cards |

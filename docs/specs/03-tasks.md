@@ -140,16 +140,17 @@ all six actions at once.
 
 | Status | # | Task | Priority | Checks (from requirements §4) |
 |--------|---|------|----------|-------------------------------|
-| To do | 13 | Database + LeaveRequest table | High | (design §1 — see task) |
-| To do | 14 | Leave form + submit action | High | AC-21 (row created), AC-22…24, AC-35 (submit) |
-| To do | 15 | My requests list (employee) | High | AC-21 (list), AC-33 (employee part) |
-| To do | 16 | Supervisor queue + Sign | High | AC-21 (queue half), AC-26, AC-28 (visibility), AC-33 (supervisor part), AC-35 (sign) |
-| To do | 17 | Supervisor Reject + remark | High | AC-27, AC-28 (cookie POST), AC-35 (reject) |
-| To do | 18 | Send to HR | High | AC-29, AC-30, AC-35 (send) |
-| To do | 19 | HR queue + Approve/Reject + first-decision-wins | High | AC-31, AC-32, AC-33 (HR part), AC-35 (HR actions) |
-| To do | 20 | Submission guardrails | Medium | AC-25, AC-23 (Other reason, final check) |
-| To do | 21 | Admin All-leave list | Medium | AC-34 |
-| To do | 22 | Full spec check + lint | High | AC-21…AC-35, `npm run lint` |
+| Done | 13 | Database + LeaveRequest table | High | (design §1 — see task) |
+| Done | 14 | Leave form + submit action | High | AC-21 (row created), AC-22…24, AC-35 (submit) |
+| Done | 15 | My requests list (employee) | High | AC-21 (list), AC-33 (employee part) |
+| Done | 16 | Supervisor queue + Sign | High | AC-21 (queue half), AC-26, AC-28 (visibility), AC-33 (supervisor part), AC-35 (sign) |
+| Done | 17 | Supervisor Reject + remark | High | AC-27, AC-28 (cookie POST), AC-35 (reject) |
+| Done | 18 | Send to HR | High | AC-29, AC-30, AC-35 (send) |
+| Done | 19 | HR queue + Approve/Reject + first-decision-wins | High | AC-31, AC-32, AC-33 (HR part), AC-35 (HR actions) |
+| Done | 20 | Submission guardrails | Medium | AC-25, AC-23 (Other reason, final check) |
+| Done | 21 | Admin All-leave list | Medium | AC-34 |
+| Done | 22 | Full spec check + lint | High | AC-21…AC-35, `npm run lint` |
+| Done | 23 | New Request button + form on its own page | High | AC-36, AC-21 (form half on the new page), AC-22…24 regression, AC-35 (submit) |
 
 ---
 
@@ -224,3 +225,13 @@ all six actions at once.
 - **Files:** none new — `01-requirements.md` §4 (Leave part) statuses get ticked, and this file's Task 13–22 rows go to Done.
 - **Traces:** FR-02…FR-08, FR-10; every leave AC; `AGENTS.md` ("`npm run lint` must pass before a task is Done").
 - **Check:** from a clean state (delete `dev.db` → migrate init → migrate leave_request → `npm run db:seed`): run **every** row AC-21…AC-35 and tick each, ideally as one continuous story (employee submits → supervisor-1 signs → employee sends → hr-1 approves → admin sees it all). AC-35 sweep: dismiss then accept each of the six actions. Regression: AC-01 (six logins) and AC-11 (seed unchanged, still users-only) still pass. No remark or personal data printed to the dev terminal. `npm run lint` exits with no errors.
+
+## Task 23 – New Request button + form on its own page *(High)*
+
+> 2026-11-20 (user request, appended after the Done Task 22): the employee
+> home page loses the New leave request card; the form moves to its own page.
+
+- **Goal:** `/employee` shows only the welcome and My requests cards; the My requests card carries a blue **New Request** pill that opens `/employee/new-request`, which hosts the **New leave request** card (moved, unchanged behaviour) with a **Back to my requests** link.
+- **Files:** `src/app/(protected)/employee/new-request/page.tsx` (new — `requireUser('EMPLOYEE')`, division supervisor query, the card + back link), `src/app/(protected)/employee/page.tsx` (form card and supervisor query removed, New Request pill added), `src/app/actions/leave.ts` (submit also revalidates `/employee/new-request`).
+- **Traces:** U12; AC-36, AC-21…24 (regression on the new host page); design §4 (2026-11-20 note), §5.
+- **Check:** AC-36 — `/employee` HTML has no leave form and a New Request link to `/employee/new-request`; the new page (as `employee-1`) renders the form and the Back link, and a `supervisor-1` cookie POST/GET of it bounces to `/supervisor`; submit from the new page creates the row (confirm → success) and `/employee` shows it (revalidation). Regression: check-task14 (form validations) re-run green. `npm run lint` passes.
